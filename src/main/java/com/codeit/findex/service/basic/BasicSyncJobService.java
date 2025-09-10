@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -86,10 +87,36 @@ public class BasicSyncJobService implements SyncJobService {
     }
 
     @Override
-    public MarketIndexApiResponse findAll(SyncJobSearchRequest request) {
+    public CursorPageResponseSyncJobDto findAll(SyncJobSearchRequest param) {
 
-        MarketIndexApiResponse response = getFromOpenApiByPage(1, 100);
-        return response;
+        // 1. 쿼리로 데이터 조회
+        List<SyncJob> syncJobList = syncJobRepository.search(param);
+        long total = syncJobRepository.count(param);
+
+        // 2. 다음 페이지 존재여부 확인
+        boolean hasNext = syncJobList.size() > param.size();
+        if (hasNext) syncJobList.remove(syncJobList.size() - 1);
+
+        List<SyncJobDto> content = syncJobList.stream().map(syncJobMapper::toDto).toList();
+
+        String nextCursor = null;
+        Long nextIdAfter = null;
+
+        if(hasNext) {
+            SyncJob lastItem = syncJobList.get(syncJobList.size() - 1);
+            String cursorJson = String.format("{\"id\":%d}", lastItem.getId());
+            nextCursor = Base64.getEncoder().encodeToString(cursorJson.getBytes());
+            nextIdAfter = lastItem.getId();
+        }
+
+        return CursorPageResponseSyncJobDto.builder()
+                .content(content)
+                .nextCursor(nextCursor)
+                .nextIdAfter(nextIdAfter)
+                .size(param.size())
+                .totalElements(total)
+                .hasNext(hasNext)
+                .build();
     }
 
     /** OpenApi에서 받아온 데이터를 Index_Data DB에 저장 */
