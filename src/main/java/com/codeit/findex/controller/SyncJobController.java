@@ -41,7 +41,7 @@ public class SyncJobController {
 
     // 연동 작업 목록 조회
     @GetMapping
-    public ResponseEntity<MarketIndexApiResponse> list(SyncJobSearchRequest req) {
-        return ResponseEntity.ok(syncJobService.findAll(req));
+    public ResponseEntity<MarketIndexApiResponse> list(SyncJobSearchRequest param) {
+        return ResponseEntity.ok(syncJobService.findAll(param));
     }
 }
