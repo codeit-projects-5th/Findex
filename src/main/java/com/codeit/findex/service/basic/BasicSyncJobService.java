@@ -7,6 +7,7 @@ import com.codeit.findex.entity.IndexInfo;
 import com.codeit.findex.entity.JobType;
 import com.codeit.findex.entity.SourceType;
 import com.codeit.findex.entity.SyncJob;
+import com.codeit.findex.mapper.SyncJobMapper;
 import com.codeit.findex.repository.IndexInfoRepository;
 import com.codeit.findex.repository.SyncJobRepository;
 import com.codeit.findex.service.SyncJobService;
@@ -34,10 +35,11 @@ public class BasicSyncJobService implements SyncJobService {
     private final WebClient financeWebClient;
     private final IndexInfoRepository indexInfoRepository;
     private final SyncJobRepository syncJobRepository;
+    private final SyncJobMapper syncJobMapper;
 
     @Transactional
     @Override
-    public void createSyncJob(String workerId) {
+    public List<SyncJobDto> createSyncJob(String workerId) {
         // 1. 지수 정보 DB에 저장
         createIndexInfos();
 
@@ -53,8 +55,8 @@ public class BasicSyncJobService implements SyncJobService {
                             .build();
                 }).toList();
 
-        syncJobRepository.saveAll(syncJobList);
-
+        return syncJobRepository.saveAll(syncJobList).stream()
+                .map(syncJobMapper::toDto).toList();
     }
 
     /** OpenApi에서 받아온 데이터로 Index_infos 값에 매핑 후 DB에 저장 */
