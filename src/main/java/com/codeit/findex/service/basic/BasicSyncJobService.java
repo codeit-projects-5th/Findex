@@ -72,6 +72,8 @@ public class BasicSyncJobService implements SyncJobService {
 
         Set<String> indexNames = indexInfoList.stream().map(IndexInfo::getIndexName).collect(Collectors.toSet());
 
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
+
         List<IndexData> indexDataList = getFromOpenApiByBaseDate(beginDate, endDate).getResponse().getBody().getItems().getItem().stream()
                 .filter(item -> indexNames.contains(item.getIndexName()))
                 .map(item -> {
@@ -82,7 +84,7 @@ public class BasicSyncJobService implements SyncJobService {
 
                     return IndexData.builder()
                             .indexInfo(matchedInfo)   // 여기 넣기
-                            .baseDate(item.getBaseDate())
+                            .baseDate(LocalDate.parse(item.getBaseDate(), formatter))
                             .sourceType(SourceType.OPEN_API)
                             .marketPrice(item.getMarketPrice())
                             .closingPrice(item.getClosingPrice())
