@@ -55,7 +55,7 @@ public class BasicSyncJobService implements SyncJobService {
                             .jobTime(Instant.now()) // 작업 일시
                             .targetDate(LocalDate.now()) // 연동한 날짜(대상 날짜)
                             .worker(workerId)
-                            .result(true)
+                            .result(ResultType.SUCCESS)
                             .build();
                 }).toList();
 
@@ -78,7 +78,7 @@ public class BasicSyncJobService implements SyncJobService {
                             .jobTime(Instant.now())
                             .targetDate(LocalDate.now())
                             .worker(workerId)
-                            .result(true)
+                            .result(ResultType.SUCCESS)
                             .build();
                 }).toList();
 
@@ -244,4 +244,8 @@ public class BasicSyncJobService implements SyncJobService {
                 .block();
     }
 
+    public enum ResultType {
+        SUCCESS,
+        FAILED
+    }
 }
