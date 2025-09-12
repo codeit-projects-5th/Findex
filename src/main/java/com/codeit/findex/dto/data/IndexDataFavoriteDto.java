@@ -1,0 +1,8 @@
+package com.codeit.findex.dto.data;
+
+import lombok.Builder;
+
+@Builder
+public record IndexDataFavoriteDto(
+
+) {}
