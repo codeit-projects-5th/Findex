@@ -27,15 +27,16 @@ public interface IndexDataMainRepository extends JpaRepository<IndexDataMain, Lo
     // 5일 평균 데이터
     @Query(
             value = """
-                    SELECT 
-                        date,
-                        ROUND(AVG(close_price) OVER (
-                            PARTITION BY symbol ORDER BY trade_date
-                            ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
-                        ), 2) AS value -- ma5,
-                    FROM stock_prices
-                    WHERE symbol = :indexInfoId
-                    ORDER BY trade_date
+                    SELECT  b.base_date as date  
+                             ,ROUND(AVG(b.closing_price) OVER (
+                                  PARTITION BY a.id ORDER BY base_date
+                                  ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                              ), 2) AS value --  각 row 별 5일 평균값 
+                      FROM  INDEX_INFOS A 
+                      JOIN  INDEX_DATA B ON A.ID = B.INDEX_INFO_ID
+                     WHERE  1=1 
+                       AND  A.INDEX_CLASSIFICATION = '테마지수'
+                       AND  A.INDEX_NAME = '코스피 200 기후변화지수'
                 """,
             nativeQuery = true
     )
@@ -44,15 +45,16 @@ public interface IndexDataMainRepository extends JpaRepository<IndexDataMain, Lo
     // 28일 평균 데이터
     @Query(
             value = """
-                    SELECT 
-                        date,
-                        ROUND(AVG(close_price) OVER (
-                            PARTITION BY symbol ORDER BY trade_date
-                            ROWS BETWEEN 27 PRECEDING AND CURRENT ROW
-                        ), 2) AS value -- ma28 
-                    FROM stock_prices
-                    WHERE symbol = :indexInfoId
-                    ORDER BY trade_date
+                    SELECT  b.base_date   as date  
+                             ,ROUND(AVG(b.closing_price) OVER (
+                                  PARTITION BY a.id ORDER BY base_date
+                                  ROWS BETWEEN 27 PRECEDING AND CURRENT ROW
+                              ), 2) AS value --  각 ropw 별 28일 평균값 
+                      FROM  INDEX_INFOS A 
+                      JOIN  INDEX_DATA B ON A.ID = B.INDEX_INFO_ID
+                     WHERE  1=1 
+                       AND  A.INDEX_CLASSIFICATION = '테마지수'
+                       AND  A.INDEX_NAME = '코스피 200 기후변화지수'
                 """,
             nativeQuery = true
     )
