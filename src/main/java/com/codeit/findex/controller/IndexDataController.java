@@ -1,6 +1,8 @@
 package com.codeit.findex.controller;
 
+import com.codeit.findex.dto.data.ChartPeriodType;
 import com.codeit.findex.dto.data.CursorPageResponseIndexDataDto;
+import com.codeit.findex.dto.data.IndexChartDto;
 import com.codeit.findex.dto.data.IndexDataDto;
 import com.codeit.findex.dto.request.IndexDataCreateRequest;
 import com.codeit.findex.dto.request.IndexDataSearchCondition;
@@ -72,6 +74,14 @@ public class IndexDataController {
     @GetMapping("/performance/favorite")
     public ResponseEntity<List<MajorIndexDataResponse>> getMajorIndex(@RequestParam String periodType) {
         List<MajorIndexDataResponse> response = dashBoardService.getMajorIndex(periodType);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{id}/chart")
+    public ResponseEntity<IndexChartDto> getIndexChart(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "YEARLY") ChartPeriodType periodType) {
+        IndexChartDto response = dashBoardService.getIndexChart(id, periodType);
         return ResponseEntity.ok(response);
     }
 
