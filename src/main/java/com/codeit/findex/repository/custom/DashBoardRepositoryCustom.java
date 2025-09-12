@@ -6,4 +6,5 @@ import java.util.List;
 
 public interface DashBoardRepositoryCustom {
     List<MajorIndexDto> getFavoriteMajorIndexData(int month);
+    List<MajorIndexDto> getCurrentAndPreviousMonthData(int month);
 }

@@ -44,4 +44,30 @@ public class DashBoardRepositoryImpl implements DashBoardRepositoryCustom {
                 .orderBy(indexInfo.id.asc(), indexData.baseDate.asc())
                 .fetch();
     }
+
+    @Override
+    public List<MajorIndexDto> getCurrentAndPreviousMonthData(int month) {
+        QIndexInfo indexInfo = QIndexInfo.indexInfo;
+        QIndexData indexData = QIndexData.indexData;
+
+        int beforeMonth = month -1;
+
+        return queryFactory
+                .select(Projections.constructor(MajorIndexDto.class,
+                        indexInfo.id.as("indexInfoId"),
+                        indexInfo.indexClassification,
+                        indexInfo.indexName,
+                        indexData.baseDate,
+                        indexData.versus,
+                        indexData.fluctuationRate,
+                        indexData.closingPrice
+                ))
+                .from(indexInfo)
+                .join(indexData).on(indexInfo.id.eq(indexData.indexInfo.id))
+                .where(Expressions.numberTemplate(Integer.class,
+                                "EXTRACT(MONTH FROM {0})", indexData.baseDate).in(month, beforeMonth)
+                )
+                .orderBy(indexInfo.id.asc(), indexData.baseDate.asc())
+                .fetch();
+    }
 }

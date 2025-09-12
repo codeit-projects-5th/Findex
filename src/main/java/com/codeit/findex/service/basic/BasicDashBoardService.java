@@ -1,6 +1,7 @@
 package com.codeit.findex.service.basic;
 
 import com.codeit.findex.dto.data.MajorIndexDto;
+import com.codeit.findex.dto.response.IndexDataRank;
 import com.codeit.findex.dto.response.MajorIndexDataResponse;
 import com.codeit.findex.repository.DashBoardRepository;
 import com.codeit.findex.service.DashBoardService;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,6 +42,36 @@ public class BasicDashBoardService implements DashBoardService {
         if(periodType.equals("DAILY")) response = dailyMajorIndex(rawData);
         if(periodType.equals("WEEKLY")) response = weeklyMajorIndex(rawData);
         if(periodType.equals("MONTHLY")) response = monthlyMajorIndex(rawData);
+
+        return response;
+    }
+
+    @Override
+    public List<IndexDataRank> getIndexPerformance(String periodType, int limit) {
+        List<IndexDataRank> response = new ArrayList<>();
+
+        LocalDate now = LocalDate.now(); // 오늘
+        int month = now.getMonthValue(); // 저번 달
+
+        // DB에서 이번달과 저번달 데이터 모두 가져오기
+        List<MajorIndexDto> rawData = dashBoardRepository.getCurrentAndPreviousMonthData(month);
+
+        List<MajorIndexDataResponse> majorDatalist = new ArrayList<>();
+
+        if(periodType.equals("DAILY")) majorDatalist = dailyMajorIndex(rawData);
+        if(periodType.equals("WEEKLY")) majorDatalist = weeklyMajorIndex(rawData);
+        if(periodType.equals("MONTHLY")) majorDatalist = monthlyMajorIndex(rawData);
+
+        AtomicInteger counter = new AtomicInteger(1);
+
+        response = majorDatalist.stream()
+                .sorted(Comparator.comparing(MajorIndexDataResponse::currentPrice).reversed()) // 내림차순으로 정렬
+                .map(indexData -> {
+                    return IndexDataRank.builder()
+                            .performance(indexData)
+                            .rank(counter.getAndIncrement())
+                            .build();
+                }).toList();
 
         return response;
     }
