@@ -119,31 +119,25 @@ public class BasicDashBoardService implements DashBoardService {
         List<MajorIndexDto> beforeDayMajorIndexList = favoriteIds.stream().map(dashBoardRepository::getBeforeDayMajorIndexData).toList();
 
         List<MajorIndexDataResponse> result = new ArrayList<>(); // 없으면 빈 문자열 넘겨주기
+        for (int i = 0; i < latestMajorIndexList.size(); i++) {
+            MajorIndexDto latest = latestMajorIndexList.get(i);
+            MajorIndexDto before = beforeDayMajorIndexList.get(i);
 
-//        if(!latestMajorIndexList.isEmpty() && !beforeDayMajorIndexList.isEmpty()) {
-//            result =  todayMajorIndexList.stream().map(majorIndex -> {
-//
-//                Optional<MajorIndexDto> yesterdayData = data.stream()
-//                        .filter(d -> d.indexInfoId().equals(majorIndex.indexInfoId()))
-//                        .filter(d -> d.baseDate().isBefore(today))
-//                        .max(Comparator.comparing(MajorIndexDto::baseDate));
-//
-//                BigDecimal currentPrice = majorIndex.closingPrice();
-//                BigDecimal beforePrice = yesterdayData.map(MajorIndexDto::closingPrice).orElse(currentPrice); // 전날 값이 없으면 현재 값으로 채움
-//                BigDecimal versus = majorIndex.versus(); // 일별 날짜는 DB에서 내려주는 값 그대로 계산 필요 X
-//                BigDecimal fluctuationRate = majorIndex.fluctuationRate(); // 일별 날짜는 DB에서 내려주는 값 그대로 계산 필요 X
-//
-//                return MajorIndexDataResponse.builder()
-//                        .indexInfoId(majorIndex.indexInfoId())
-//                        .indexClassification(majorIndex.indexClassification())
-//                        .indexName(majorIndex.indexName())
-//                        .versus(versus)
-//                        .fluctuationRate(fluctuationRate)
-//                        .currentPrice(currentPrice)
-//                        .beforePrice(beforePrice)
-//                        .build();
-//            }).toList();
-//        }
+            BigDecimal currentPrice = latest.closingPrice();
+            BigDecimal beforePrice = before.closingPrice();
+            BigDecimal versus = latest.versus();
+            BigDecimal fluctuationRate = latest.fluctuationRate();
+
+            result.add(MajorIndexDataResponse.builder()
+                    .indexInfoId(latest.indexInfoId())
+                    .indexClassification(latest.indexClassification())
+                    .indexName(latest.indexName())
+                    .versus(versus)
+                    .fluctuationRate(fluctuationRate)
+                    .currentPrice(currentPrice)
+                    .beforePrice(beforePrice)
+                    .build());
+        }
 
         return result;
     }
