@@ -7,6 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.util.List;
+
 @Component
 @RequiredArgsConstructor
 public class MarketIndexApiClient {
@@ -44,8 +46,7 @@ public class MarketIndexApiClient {
     }
 
 
-    public MarketIndexApiResponse getFromOpenApiByBaseDate(int pageNo, int numOfRows, String beginDate, String endDate) {
-
+    public List<MarketIndexApiResponse.Item> getFromOpenApiByBaseDate(int pageNo, int numOfRows, String indexName, String beginDate, String endDate) {
         if(beginDate == null || beginDate.length() != 8) throw new IllegalArgumentException("잘못된 날짜 정보입니다.");
         if(endDate == null || endDate.length() != 8) throw new IllegalArgumentException("잘못된 날짜 정보입니다.");
 
@@ -56,13 +57,12 @@ public class MarketIndexApiClient {
                         .queryParam("resultType", "json")
                         .queryParam("pageNo", pageNo)
                         .queryParam("numOfRows", numOfRows)
-                        .queryParam("beginBasDt", beginDate)
-                        .queryParam("endBasDt", endDate)
+                        .queryParam("idxNm", indexName)
                         .build())
                 .accept(MediaType.ALL)
                 .retrieve()
                 .bodyToMono(MarketIndexApiResponse.class)
-                .block();
+                .block().getResponse().getBody().getItems().getItem();
     }
 
 }

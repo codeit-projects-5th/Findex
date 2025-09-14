@@ -9,5 +9,7 @@ import java.util.List;
 public interface SyncJobRepositoryCustom {
     List<SyncJob> search(SyncJobSearchRequest param);
     long count(SyncJobSearchRequest param);
+
     void saveAllInBatch(List<SyncJobDto> syncJobs);
+    void saveAllInBatchWithTargetDate(List<SyncJobDto> syncJobs);
 }

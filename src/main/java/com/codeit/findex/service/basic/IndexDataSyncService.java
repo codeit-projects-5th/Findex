@@ -1,7 +1,10 @@
 package com.codeit.findex.service.basic;
 
 import com.codeit.findex.client.MarketIndexApiClient;
+import com.codeit.findex.dto.data.IndexDataUnique;
+import com.codeit.findex.dto.data.IndexInfoUnique;
 import com.codeit.findex.dto.request.IndexDataSyncRequest;
+import com.codeit.findex.dto.response.MarketIndexApiResponse;
 import com.codeit.findex.entity.IndexData;
 import com.codeit.findex.entity.IndexInfo;
 import com.codeit.findex.entity.SourceType;
@@ -12,8 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,7 +28,6 @@ public class IndexDataSyncService {
 
     /** OpenApi에서 받아온 데이터를 Index_Data DB에 저장 */
     public void createIndexData(IndexDataSyncRequest request) {
-
         int pageNo = 1;
         int pageSize = 999;
 
@@ -42,47 +43,50 @@ public class IndexDataSyncService {
             throw new IllegalArgumentException("존재하지 않는 지수정보가 포함되어 있습니다.");
         }
 
-        Set<String> indexInfoSet = indexInfoList.stream()
-                .map(indexInfo ->
-                        indexInfo.getIndexClassification() + indexInfo.getIndexName()
-                ).collect(Collectors.toSet());
-
         // 5. OpenApi에서 가져온 baseDate를 LocalDate로 변환
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
 
-        // OpenApi 호출
-        while (true) {
-            List<IndexData> indexDataList = marketIndexApiClient.getFromOpenApiByBaseDate(pageNo, pageSize, beginDate, endDate).getResponse().getBody().getItems().getItem().stream()
-                    // 지수 분류명으로 필터링
-                    .filter(item -> indexInfoSet.contains(item.getIndexClassification()+item.getIndexName()))
-                    .map(item -> {
-                        IndexInfo matchedInfo = indexInfoList.stream()
-                                .filter(info -> info.getIndexName().equals(item.getIndexName()))
-                                .findFirst()
-                                .orElseThrow(() -> new IllegalArgumentException("IndexInfo not found for " + item.getIndexName()));
+        for (IndexInfo indexInfo: indexInfoList) {
+            List<IndexData> targetIndexData = new ArrayList<>();
 
-                        return IndexData.builder()
-                                .indexInfo(matchedInfo)   // 여기 넣기
-                                .baseDate(LocalDate.parse(item.getBaseDate(), formatter))
-                                .sourceType(SourceType.OPEN_API)
-                                .marketPrice(item.getMarketPrice())
-                                .closingPrice(item.getClosingPrice())
-                                .highPrice(item.getHighPrice())
-                                .lowPrice(item.getLowPrice())
-                                .versus(item.getVersus())
-                                .fluctuationRate(item.getFluctuationRate())
-                                .tradingPrice(item.getTradingPrice())
-                                .tradingQuantity(item.getTradingQuantity())
-                                .marketTotalAmount(item.getMarketTotalAmount())
-                                .build();
-                    })
-                    .toList();
 
-            // 데이터 저장
-            indexDataRepository.saveAll(indexDataList);
+            while (true) {
+                List<MarketIndexApiResponse.Item> fetchedIndexData =
+                        marketIndexApiClient.getFromOpenApiByBaseDate(pageNo, pageSize, indexInfo.getIndexName(), beginDate, endDate);
 
-            pageNo++;
-            if(indexDataList.isEmpty())  break;
+                if(fetchedIndexData.isEmpty())  break; // 비어있으면 루프 중단
+
+                targetIndexData.addAll(fetchedIndexData.stream()
+                        .filter(item ->
+                                Objects.equals(item.getIndexName(), indexInfo.getIndexName()) &&
+                                Objects.equals(item.getIndexClassification(), indexInfo.getIndexClassification())
+                        ).map(item -> {
+                            IndexInfo matchedInfo = indexInfoList.stream()
+                                    .filter(info -> info.getIndexName().equals(item.getIndexName()))
+                                    .findFirst()
+                                    .orElseThrow(() -> new IllegalArgumentException("IndexInfo not found for " + item.getIndexName()));
+
+                            return IndexData.builder()
+                                    .indexInfo(matchedInfo)
+                                    .baseDate(LocalDate.parse(item.getBaseDate(), formatter))
+                                    .sourceType(SourceType.OPEN_API)
+                                    .marketPrice(item.getMarketPrice())
+                                    .closingPrice(item.getClosingPrice())
+                                    .highPrice(item.getHighPrice())
+                                    .lowPrice(item.getLowPrice())
+                                    .versus(item.getVersus())
+                                    .fluctuationRate(item.getFluctuationRate())
+                                    .tradingPrice(item.getTradingPrice())
+                                    .tradingQuantity(item.getTradingQuantity())
+                                    .marketTotalAmount(item.getMarketTotalAmount())
+                                    .build();
+                        }).toList());
+                pageNo++;
+            }
+
+            if (!targetIndexData.isEmpty()) {
+                indexDataRepository.saveAllInBatch(targetIndexData, indexInfoList.get(0).getId());
+            }
         }
     }
 }

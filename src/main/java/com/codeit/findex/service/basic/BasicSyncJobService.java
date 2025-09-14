@@ -46,12 +46,12 @@ public class BasicSyncJobService implements SyncJobService {
         indexInfoSyncService.createIndexInfos();
 
         // 2. 연동 정보 DB에 저장
-        List<SyncJobDto> syncJobDtos = createSyncJobs(workerId);
+        List<SyncJobDto> syncJobDtos = createSyncJobsOfIndexInfo(workerId);
 
         return syncJobDtos;
     }
 
-    private List<SyncJobDto> createSyncJobs(String workerId) {
+    private List<SyncJobDto> createSyncJobsOfIndexInfo(String workerId) {
         List<SyncJobDto> syncJobRegistry = new ArrayList<>(); // SyncJob 테이블에 최종적으로 저장되는 데이터 목록
         List<IndexInfo> syncedIndexInfos = indexInfoRepository.findAll();
 
@@ -68,29 +68,45 @@ public class BasicSyncJobService implements SyncJobService {
             syncJobRegistry.add(newSyncJob);
         }
 
-        syncJobRepository.saveAllInBatch(syncJobRegistry);
+        if (!syncJobRegistry.isEmpty()) {
+            syncJobRepository.saveAllInBatch(syncJobRegistry);
+        }
         return syncJobRegistry;
     }
 
+    @Override
+    @Transactional
     public List<SyncJobDto> createIndexDataSyncJob(String workerId, IndexDataSyncRequest request) {
         // 1. 지수 데이터 DB에 저장
         indexDataSyncService.createIndexData(request);
 
-        // 2. 지수 정보(지수분류명)에 해당하는 지수 데이터 조회
-        List<SyncJob> syncJobList = indexDataRepository.findByIndexInfoIds(request.indexInfoIds()).stream()
-                .map(indexData -> {
-                    return  SyncJob.builder()
-                            .indexInfo(indexData.getIndexInfo())
-                            .jobType(JobType.INDEX_DATA)
-                            .jobTime(LocalDateTime.now())
-                            .targetDate(LocalDate.now())
-                            .worker(workerId)
-                            .result(ResultType.SUCCESS.toBoolean())
-                            .build();
-                }).toList();
+        // 2. 연동 정보 DB에 저장
+        List<SyncJobDto> syncJobDtos = createSyncJobsOfIndexData(workerId, request.indexInfoIds().get(0));
 
-        return syncJobRepository.saveAll(syncJobList).stream()
-                .map(syncJobMapper::toDto).toList();
+        return syncJobDtos;
+    }
+
+    private List<SyncJobDto> createSyncJobsOfIndexData(String workerId, Long indexInfoId) {
+        List<SyncJobDto> syncJobRegistry = new ArrayList<>(); // SyncJob 테이블에 최종적으로 저장되는 데이터 목록
+        List<IndexData> syncedIndexInfos = indexDataRepository.findAll();
+
+        for (IndexData indexData : syncedIndexInfos) {
+            SyncJobDto newSyncJob = SyncJobDto.builder()
+                    .indexInfoId(indexInfoId)
+                    .jobType(JobType.INDEX_DATA)
+                    .jobTime(LocalDateTime.now()) // 작업 일시
+                    .targetDate(indexData.getBaseDate()) // 연동한 날짜(대상 날짜)
+                    .worker(workerId)
+                    .result(ResultType.SUCCESS)
+                    .build();
+
+            syncJobRegistry.add(newSyncJob);
+        }
+
+        if (!syncJobRegistry.isEmpty()) {
+            syncJobRepository.saveAllInBatchWithTargetDate(syncJobRegistry);
+        }
+        return syncJobRegistry;
     }
 
     @Override

@@ -5,7 +5,9 @@ import com.codeit.findex.dto.data.IndexChartDto;
 import com.codeit.findex.dto.data.MajorIndexDto;
 import com.codeit.findex.dto.response.IndexDataRank;
 import com.codeit.findex.dto.response.MajorIndexDataResponse;
+import com.codeit.findex.entity.IndexInfo;
 import com.codeit.findex.repository.DashBoardRepository;
+import com.codeit.findex.repository.IndexInfoRepository;
 import com.codeit.findex.service.DashBoardService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class BasicDashBoardService implements DashBoardService {
 
+    private final IndexInfoRepository indexInfoRepository;
     private final DashBoardRepository dashBoardRepository;
 
     /**
@@ -38,11 +41,16 @@ public class BasicDashBoardService implements DashBoardService {
         LocalDate now = LocalDate.now();
         int month = now.getMonthValue();
 
+        List<Long> favoriteIds = indexInfoRepository.findByFavoriteTrue()
+                .stream()
+                .map(IndexInfo::getId)
+                .toList();
+
         List<MajorIndexDto> rawData = dashBoardRepository.getFavoriteMajorIndexData(month);
 
         List<MajorIndexDataResponse> response = null;
 
-        if(periodType.equals("DAILY")) response = dailyMajorIndex(rawData);
+        if(periodType.equals("DAILY")) response = dailyMajorIndex(favoriteIds);
         if(periodType.equals("WEEKLY")) response = weeklyMajorIndex(rawData);
         if(periodType.equals("MONTHLY")) response = monthlyMajorIndex(rawData);
 
@@ -73,9 +81,14 @@ public class BasicDashBoardService implements DashBoardService {
         // DB에서 이번달과 저번달 데이터 모두 가져오기
         List<MajorIndexDto> rawData = dashBoardRepository.getCurrentAndPreviousMonthData(month);
 
+        List<Long> favoriteIds = indexInfoRepository.findByFavoriteTrue()
+                .stream()
+                .map(IndexInfo::getId)
+                .toList();
+
         List<MajorIndexDataResponse> majorDatalist = new ArrayList<>();
 
-        if(periodType.equals("DAILY")) majorDatalist = dailyMajorIndex(rawData);
+        if(periodType.equals("DAILY")) majorDatalist = dailyMajorIndex(favoriteIds);
         if(periodType.equals("WEEKLY")) majorDatalist = weeklyMajorIndex(rawData);
         if(periodType.equals("MONTHLY")) majorDatalist = monthlyMajorIndex(rawData);
 
@@ -98,40 +111,39 @@ public class BasicDashBoardService implements DashBoardService {
      * - 오늘 날짜와 어제 날짜 반환
      * - 계산 필요없이 DB값 그대로, 어제 날짜만 찾으면 됨
      */
-    private List<MajorIndexDataResponse> dailyMajorIndex(List<MajorIndexDto> data) {
+    private List<MajorIndexDataResponse> dailyMajorIndex(List<Long> favoriteIds) {
 
-        LocalDate today = LocalDate.now().minusDays(1); // 오늘 날짜(지수상 오늘 날짜는 없기 때문에 -1이 당일이라고 침
-
-        // 오늘의 지수 데이터 조회
-        List<MajorIndexDto> todayMajorIndexList = data.stream()
-                .filter(indexData -> indexData.baseDate().equals(today)).toList();
+        // 1. 오늘의 지수 데이터 조회
+        List<MajorIndexDto> latestMajorIndexList = favoriteIds.stream().map(dashBoardRepository::getLatestMajorIndexData).toList();
+        // 2. 어제의 지수 데이터
+        List<MajorIndexDto> beforeDayMajorIndexList = favoriteIds.stream().map(dashBoardRepository::getBeforeDayMajorIndexData).toList();
 
         List<MajorIndexDataResponse> result = new ArrayList<>(); // 없으면 빈 문자열 넘겨주기
 
-        if(!todayMajorIndexList.isEmpty()) {
-            result =  todayMajorIndexList.stream().map(majorIndex -> {
-
-                Optional<MajorIndexDto> yesterdayData = data.stream()
-                        .filter(d -> d.indexInfoId().equals(majorIndex.indexInfoId()))
-                        .filter(d -> d.baseDate().isBefore(today))
-                        .max(Comparator.comparing(MajorIndexDto::baseDate));
-
-                BigDecimal currentPrice = majorIndex.closingPrice();
-                BigDecimal beforePrice = yesterdayData.map(MajorIndexDto::closingPrice).orElse(currentPrice); // 전날 값이 없으면 현재 값으로 채움
-                BigDecimal versus = majorIndex.versus(); // 일별 날짜는 DB에서 내려주는 값 그대로 계산 필요 X
-                BigDecimal fluctuationRate = majorIndex.fluctuationRate(); // 일별 날짜는 DB에서 내려주는 값 그대로 계산 필요 X
-
-                return MajorIndexDataResponse.builder()
-                        .indexInfoId(majorIndex.indexInfoId())
-                        .indexClassification(majorIndex.indexClassification())
-                        .indexName(majorIndex.indexName())
-                        .versus(versus)
-                        .fluctuationRate(fluctuationRate)
-                        .currentPrice(currentPrice)
-                        .beforePrice(beforePrice)
-                        .build();
-            }).toList();
-        }
+//        if(!latestMajorIndexList.isEmpty() && !beforeDayMajorIndexList.isEmpty()) {
+//            result =  todayMajorIndexList.stream().map(majorIndex -> {
+//
+//                Optional<MajorIndexDto> yesterdayData = data.stream()
+//                        .filter(d -> d.indexInfoId().equals(majorIndex.indexInfoId()))
+//                        .filter(d -> d.baseDate().isBefore(today))
+//                        .max(Comparator.comparing(MajorIndexDto::baseDate));
+//
+//                BigDecimal currentPrice = majorIndex.closingPrice();
+//                BigDecimal beforePrice = yesterdayData.map(MajorIndexDto::closingPrice).orElse(currentPrice); // 전날 값이 없으면 현재 값으로 채움
+//                BigDecimal versus = majorIndex.versus(); // 일별 날짜는 DB에서 내려주는 값 그대로 계산 필요 X
+//                BigDecimal fluctuationRate = majorIndex.fluctuationRate(); // 일별 날짜는 DB에서 내려주는 값 그대로 계산 필요 X
+//
+//                return MajorIndexDataResponse.builder()
+//                        .indexInfoId(majorIndex.indexInfoId())
+//                        .indexClassification(majorIndex.indexClassification())
+//                        .indexName(majorIndex.indexName())
+//                        .versus(versus)
+//                        .fluctuationRate(fluctuationRate)
+//                        .currentPrice(currentPrice)
+//                        .beforePrice(beforePrice)
+//                        .build();
+//            }).toList();
+//        }
 
         return result;
     }

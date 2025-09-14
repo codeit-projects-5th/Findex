@@ -138,4 +138,32 @@ public class SyncJobRepositoryImpl implements SyncJobRepositoryCustom {
 
         em.createNativeQuery(query.toString()).executeUpdate();
     }
+
+    @Override
+    public void saveAllInBatchWithTargetDate(List<SyncJobDto> syncJobs) {
+        StringBuilder query = new StringBuilder();
+
+        query.append("INSERT INTO sync_jobs ")
+                .append("(index_info_id, target_date, job_type, worker, job_time, result) ")
+                .append("VALUES ");
+
+        for (int i = 0; i < syncJobs.size(); i++) {
+            SyncJobDto jobs = syncJobs.get(i);
+
+            query.append("(")
+                    .append("'").append(jobs.indexInfoId()).append("', ")
+                    .append("'").append(jobs.targetDate()).append("', ")
+                    .append("'").append(jobs.jobType()).append("', ")
+                    .append("'").append(jobs.worker()).append("', ")
+                    .append("'").append(jobs.jobTime()).append("', ")
+                    .append(jobs.result().toBoolean())
+                    .append(")");
+
+            if (i < syncJobs.size() - 1) {
+                query.append(", ");
+            }
+        }
+
+        em.createNativeQuery(query.toString()).executeUpdate();
+    }
 }

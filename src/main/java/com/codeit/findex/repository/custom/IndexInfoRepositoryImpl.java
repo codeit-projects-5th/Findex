@@ -141,8 +141,6 @@ public class IndexInfoRepositoryImpl implements IndexInfoRepositoryCustom {
       }
     }
 
-    System.out.println(query.toString());
-
     em.createNativeQuery(query.toString()).executeUpdate();
   }
 }

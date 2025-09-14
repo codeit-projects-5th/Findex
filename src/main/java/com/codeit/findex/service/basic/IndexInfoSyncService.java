@@ -31,7 +31,6 @@ public class IndexInfoSyncService {
     private final MarketIndexApiClient marketIndexApiClient;
 
     /** OpenApi에서 받아온 데이터로 Index_infos 값에 매핑 후 DB에 저장 */
-    @Transactional
     public void createIndexInfos() {
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd"); // yyyMMdd 를 LocalDate(yyyy-MM-dd) 형식으로 변환해주는 포매터
@@ -87,6 +86,8 @@ public class IndexInfoSyncService {
             pageNo++;
         }
 
-        indexInfoRepository.saveAllInBatch(indexInfoRegistry);
+        if (!indexInfoRegistry.isEmpty()) {
+            indexInfoRepository.saveAllInBatch(indexInfoRegistry);
+        }
     }
 }
