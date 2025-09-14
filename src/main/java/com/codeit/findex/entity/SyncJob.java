@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Getter @Builder
 @NoArgsConstructor @AllArgsConstructor
@@ -30,7 +31,7 @@ public class SyncJob {
 
     private String worker;
 
-    private Instant jobTime;
+    private LocalDateTime jobTime;
 
     private Boolean result;
 
