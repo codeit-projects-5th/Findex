@@ -13,6 +13,8 @@ CustomRepository로 분리
  */
 public interface IndexInfoRepository extends JpaRepository<IndexInfo, Long>, IndexInfoRepositoryCustom {
 
+    List<IndexInfo> findAll();
+
     boolean existsByIndexClassificationAndIndexName(String indexClassification, String indexName);
 
     //지수 요약 목록 조회

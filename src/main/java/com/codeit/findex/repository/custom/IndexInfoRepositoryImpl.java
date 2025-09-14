@@ -118,20 +118,32 @@ public class IndexInfoRepositoryImpl implements IndexInfoRepositoryCustom {
 
   @Override
   public void saveAllInBatch(List<IndexInfo> indexInfos) {
-    String sql = """
-      INSERT INTO index_infos 
-        (index_classification, index_name, employed_items_count, base_point_in_time, base_index, source_type) 
-      VALUES (?, ?, ?, ?, ?, ?)
-    """;
+    StringBuilder query = new StringBuilder();
 
-    jdbcTemplate.batchUpdate(sql, indexInfos, 1000, (ps, info) -> {
-      ps.setString(1, info.getIndexClassification());
-      ps.setString(2, info.getIndexName());
-      ps.setInt(3, info.getEmployedItemsCount());
-      ps.setObject(4, info.getBasePointInTime());
-      ps.setDouble(5, info.getBaseIndex());
-      ps.setString(6, info.getSourceType().name());
-    });
+    query.append("INSERT INTO index_infos ")
+            .append("(index_classification, index_name, employed_items_count, base_point_in_time, base_index, source_type) ")
+            .append("VALUES ");
+
+    for (int i = 0; i < indexInfos.size(); i++) {
+      IndexInfo info = indexInfos.get(i);
+
+      query.append("(")
+              .append("'").append(info.getIndexClassification()).append("', ")
+              .append("'").append(info.getIndexName()).append("', ")
+              .append(info.getEmployedItemsCount()).append(", ")
+              .append("'").append(info.getBasePointInTime()).append("', ")
+              .append(info.getBaseIndex()).append(", ")
+              .append("'").append(info.getSourceType().name()).append("'")
+              .append(")");
+
+      if (i < indexInfos.size() - 1) {
+        query.append(", ");
+      }
+    }
+
+    System.out.println(query.toString());
+
+    em.createNativeQuery(query.toString()).executeUpdate();
   }
 }
   

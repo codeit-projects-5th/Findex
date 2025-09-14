@@ -20,24 +20,29 @@ public class MarketIndexApiClient {
      * OpenApi에서 날짜를 기준으로 데이터를 받아옴
      * @param pageNo 페이지 번호
      * @param numOfRows 가져오는 row 개수
-     * @param lastSyncedDate
+     * @param lastSyncedDate 기준일자가 검색값보다 크거나 같은 데이터를 검색
      */
     public MarketIndexApiResponse getFromOpenApiByPage(int pageNo, int numOfRows, String lastSyncedDate) {
         return webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/getStockMarketIndex")
-                        .queryParam("serviceKey", serviceKey)
-                        .queryParam("resultType", "json")
-                        .queryParam("pageNo", pageNo)
-                        .queryParam("numOfRows", numOfRows)
-                        .queryParam("beginBasDt", lastSyncedDate)
-                        .build())
+                .uri(uriBuilder -> {
+                    uriBuilder.path("/getStockMarketIndex")
+                            .queryParam("serviceKey", serviceKey)
+                            .queryParam("resultType", "json")
+                            .queryParam("pageNo", pageNo)
+                            .queryParam("numOfRows", numOfRows);
+
+                    if (lastSyncedDate != null && !lastSyncedDate.isBlank()) {
+                        uriBuilder.queryParam("beginBasDt", lastSyncedDate); // 기준일자 조건 추가
+                    }
+
+                    return uriBuilder.build();
+                })
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
                 .bodyToMono(MarketIndexApiResponse.class)
                 .block();
-
     }
+
 
     public MarketIndexApiResponse getFromOpenApiByBaseDate(int pageNo, int numOfRows, String beginDate, String endDate) {
 
