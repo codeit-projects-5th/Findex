@@ -6,27 +6,34 @@ import com.codeit.findex.entity.QIndexData;
 import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.types.Order;
 import com.querydsl.core.types.OrderSpecifier;
+import com.querydsl.core.types.dsl.ComparableExpressionBase;
+import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class IndexDataRepositoryImpl implements IndexDataRepositoryCustom {
 
-    // JPQL 쿼리를 생성하고 실행하기 위한 EntityManager 의존성 주입
     private final EntityManager em;
     private final JPAQueryFactory queryFactory;
 
     /**
-     * JPQL 인젝션 공격을 방지하기 위한 정렬 가능 필드 화이트리스트
-     * 클라이언트로부터 받은 정렬 필드명이 이 리스트에 포함된 경우에만 쿼리에 사용
+     * 정렬 가능 필드 화이트리스트
      */
     private static final List<String> ALLOWED_SORT_FIELDS = Arrays.asList(
         "baseDate", "marketPrice", "closingPrice", "highPrice", "lowPrice",
@@ -34,84 +41,233 @@ public class IndexDataRepositoryImpl implements IndexDataRepositoryCustom {
     );
 
     @Override
-    public List<IndexData> search(IndexDataSearchCondition condition) {
-
+    public Slice<IndexData> findSlice(IndexDataSearchCondition condition) {
         QIndexData indexData = QIndexData.indexData;
-        BooleanBuilder where = new BooleanBuilder(); // where 조건 빌드
+        
+        // 기본 필터 조건
+        BooleanBuilder where = buildBasicConditions(condition, indexData);
+        
+        // 커서 기반 조건 추가
+        buildCursorCondition(condition, indexData, where);
+        
+        // 정렬 조건 생성
+        OrderSpecifier<?> orderSpecifier = buildOrderSpecifier(condition, indexData);
+        
+        // 메인 쿼리 실행 (size + 1개 조회)
+        List<IndexData> content = queryFactory
+            .selectFrom(indexData)
+            .where(where)
+            .orderBy(orderSpecifier, indexData.id.asc()) // 2차 정렬로 일관성 보장
+            .limit(condition.size() + 1)
+            .fetch();
+        
+        // hasNext 판단
+        boolean hasNext = content.size() > condition.size();
+        if (hasNext) {
+            content.remove(content.size() - 1); // 초과분 제거
+        }
+        
+        log.debug("Slice query executed - size: {}, hasNext: {}, sortField: {}", 
+                 content.size(), hasNext, condition.sortField());
+        
+        return new SliceImpl<>(content, createPageable(condition), hasNext);
+    }
 
-        // 지수 정보 ID 필터
+    /**
+     * 기본 필터 조건 생성
+     */
+    private BooleanBuilder buildBasicConditions(IndexDataSearchCondition condition, QIndexData indexData) {
+        BooleanBuilder where = new BooleanBuilder();
+        
         if (condition.indexInfoId() != null) {
             where.and(indexData.indexInfo.id.eq(condition.indexInfoId()));
         }
-        
-        // 시작 날짜 조건이 있으면 쿼리에 추가
         if (condition.startDate() != null) {
             where.and(indexData.baseDate.goe(condition.startDate()));
         }
-        
-        // 종료 날짜 조건이 있으면 쿼리에 추가
         if (condition.endDate() != null) {
             where.and(indexData.baseDate.loe(condition.endDate()));
         }
         
-        // 커서 기반 페이지네이션 - idAfter 보다 큰 ID만 조회
-        if (condition.idAfter() != null) {
-            where.and(indexData.id.gt(condition.idAfter()));
-        }
+        return where;
+    }
 
-        // 정렬 필드 화이트리스트 검증
+    /**
+     * 커서 기반 조건 생성 (정렬 필드별 최적화)
+     */
+    private void buildCursorCondition(IndexDataSearchCondition condition, QIndexData indexData, BooleanBuilder where) {
+        Object lastSortValue = condition.getLastSortValue();
+        Long lastId = condition.getLastId();
+        
+        if (lastSortValue == null || lastId == null) {
+            return; // 커서가 없으면 첫 페이지
+        }
+        
         String sortField = condition.sortField();
+        boolean isDesc = condition.isDescending();
+        
+        log.debug("Building cursor condition - sortField: {}, lastValue: {}, lastId: {}, isDesc: {}", 
+                 sortField, lastSortValue, lastId, isDesc);
+        
+        BooleanBuilder cursorCondition = new BooleanBuilder();
+        
+        switch (sortField) {
+            case "baseDate" -> {
+                LocalDate dateValue = (LocalDate) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.baseDate.lt(dateValue))
+                                  .or(indexData.baseDate.eq(dateValue).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.baseDate.gt(dateValue))
+                                  .or(indexData.baseDate.eq(dateValue).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "marketPrice" -> {
+                BigDecimal value = (BigDecimal) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.marketPrice.lt(value))
+                                  .or(indexData.marketPrice.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.marketPrice.gt(value))
+                                  .or(indexData.marketPrice.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "closingPrice" -> {
+                BigDecimal value = (BigDecimal) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.closingPrice.lt(value))
+                                  .or(indexData.closingPrice.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.closingPrice.gt(value))
+                                  .or(indexData.closingPrice.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "highPrice" -> {
+                BigDecimal value = (BigDecimal) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.highPrice.lt(value))
+                                  .or(indexData.highPrice.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.highPrice.gt(value))
+                                  .or(indexData.highPrice.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "lowPrice" -> {
+                BigDecimal value = (BigDecimal) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.lowPrice.lt(value))
+                                  .or(indexData.lowPrice.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.lowPrice.gt(value))
+                                  .or(indexData.lowPrice.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "versus" -> {
+                BigDecimal value = (BigDecimal) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.versus.lt(value))
+                                  .or(indexData.versus.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.versus.gt(value))
+                                  .or(indexData.versus.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "fluctuationRate" -> {
+                BigDecimal value = (BigDecimal) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.fluctuationRate.lt(value))
+                                  .or(indexData.fluctuationRate.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.fluctuationRate.gt(value))
+                                  .or(indexData.fluctuationRate.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "tradingQuantity" -> {
+                Long value = (Long) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.tradingQuantity.lt(value))
+                                  .or(indexData.tradingQuantity.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.tradingQuantity.gt(value))
+                                  .or(indexData.tradingQuantity.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "tradingPrice" -> {
+                Long value = (Long) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.tradingPrice.lt(value))
+                                  .or(indexData.tradingPrice.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.tradingPrice.gt(value))
+                                  .or(indexData.tradingPrice.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+            case "marketTotalAmount" -> {
+                Long value = (Long) lastSortValue;
+                if (isDesc) {
+                    cursorCondition.or(indexData.marketTotalAmount.lt(value))
+                                  .or(indexData.marketTotalAmount.eq(value).and(indexData.id.gt(lastId)));
+                } else {
+                    cursorCondition.or(indexData.marketTotalAmount.gt(value))
+                                  .or(indexData.marketTotalAmount.eq(value).and(indexData.id.gt(lastId)));
+                }
+            }
+        }
+        
+        where.and(cursorCondition);
+    }
+
+    /**
+     * 정렬 조건 생성
+     */
+    private OrderSpecifier<?> buildOrderSpecifier(IndexDataSearchCondition condition, QIndexData indexData) {
+        String sortField = condition.sortField();
+        
+        // 화이트리스트 검증
         if (!ALLOWED_SORT_FIELDS.contains(sortField)) {
             throw new IllegalArgumentException("허용되지 않은 정렬 필드입니다: " + sortField);
         }
+        
+        Order order = condition.isDescending() ? Order.DESC : Order.ASC;
+        
+        return switch (sortField) {
+            case "baseDate" -> new OrderSpecifier<>(order, indexData.baseDate);
+            case "marketPrice" -> new OrderSpecifier<>(order, indexData.marketPrice);
+            case "closingPrice" -> new OrderSpecifier<>(order, indexData.closingPrice);
+            case "highPrice" -> new OrderSpecifier<>(order, indexData.highPrice);
+            case "lowPrice" -> new OrderSpecifier<>(order, indexData.lowPrice);
+            case "versus" -> new OrderSpecifier<>(order, indexData.versus);
+            case "fluctuationRate" -> new OrderSpecifier<>(order, indexData.fluctuationRate);
+            case "tradingQuantity" -> new OrderSpecifier<>(order, indexData.tradingQuantity);
+            case "tradingPrice" -> new OrderSpecifier<>(order, indexData.tradingPrice);
+            case "marketTotalAmount" -> new OrderSpecifier<>(order, indexData.marketTotalAmount);
+            default -> new OrderSpecifier<>(Order.DESC, indexData.baseDate); // fallback
+        };
+    }
 
-        // 정렬 방향 설정
-        Order order = "desc".equalsIgnoreCase(condition.sortDirection()) ? Order.DESC : Order.ASC;
-        OrderSpecifier<?> orderSpecifier;
+    /**
+     * Pageable 객체 생성
+     */
+    private Pageable createPageable(IndexDataSearchCondition condition) {
+        return Pageable.ofSize(condition.size());
+    }
 
-        // 정렬 필드에 따른 OrderSpecifier 생성 (sortField 기준으로 수정)
-        switch (sortField) {
-            case "baseDate" -> orderSpecifier = new OrderSpecifier<>(order, indexData.baseDate);
-            case "marketPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.marketPrice);
-            case "closingPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.closingPrice);
-            case "highPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.highPrice);
-            case "lowPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.lowPrice);
-            case "versus" -> orderSpecifier = new OrderSpecifier<>(order, indexData.versus);
-            case "fluctuationRate" -> orderSpecifier = new OrderSpecifier<>(order, indexData.fluctuationRate);
-            case "tradingQuantity" -> orderSpecifier = new OrderSpecifier<>(order, indexData.tradingQuantity);
-            case "tradingPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.tradingPrice);
-            case "marketTotalAmount" -> orderSpecifier = new OrderSpecifier<>(order, indexData.marketTotalAmount);
-            default -> orderSpecifier = new OrderSpecifier<>(Order.DESC, indexData.baseDate); // fallback
-        }
+    // =============================================================================
+    // 기존 메서드들 (호환성 유지)
+    // =============================================================================
 
-        // 커서 기반 페이지네이션을 위해 size + 1개 조회
-        int limitSize = condition.size() != null ? condition.size() + 1 : 11; // 기본값 10 + 1
-
-        return queryFactory.selectFrom(indexData)
-                .where(where)
-                .orderBy(orderSpecifier, indexData.id.asc()) // 정렬 필드 + ID로 2차 정렬 (일관된 순서 보장)
-                .limit(limitSize)
-                .fetch();
+    @Override
+    public List<IndexData> search(IndexDataSearchCondition condition) {
+        // 기존 구현 유지 (필요시 사용)
+        Slice<IndexData> slice = findSlice(condition);
+        return slice.getContent();
     }
 
     @Override
     public long count(IndexDataSearchCondition condition) {
-
         QIndexData indexData = QIndexData.indexData;
-        BooleanBuilder where = new BooleanBuilder(); // where 조건 빌드
-
-        if (condition.indexInfoId() != null) {
-            where.and(indexData.indexInfo.id.eq(condition.indexInfoId()));
-        }
-        // 시작 날짜 조건이 있으면 쿼리에 추가
-        if (condition.startDate() != null) {
-            where.and(indexData.baseDate.goe(condition.startDate()));
-        }
-        // 종료 날짜 조건이 있으면 쿼리에 추가
-        if (condition.endDate() != null) {
-            where.and(indexData.baseDate.loe(condition.endDate()));
-        }
-
+        BooleanBuilder where = buildBasicConditions(condition, indexData);
+        
         return Optional.ofNullable(queryFactory
                 .select(indexData.id.countDistinct())
                 .from(indexData)
@@ -119,7 +275,6 @@ public class IndexDataRepositoryImpl implements IndexDataRepositoryCustom {
                 .fetchOne()).orElse(0L);
     }
 
-    // CSV Export를 위해 페이지네이션 없이 모든 데이터를 필터링하고 정렬하여 조회하는 findAllByCondition 메소드
     @Override
     public List<IndexData> findAllByCondition(IndexDataSearchCondition condition) {
         StringBuilder jpqlBuilder = new StringBuilder("SELECT d FROM IndexData d WHERE 1=1");

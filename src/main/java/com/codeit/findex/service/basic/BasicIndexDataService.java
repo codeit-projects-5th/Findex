@@ -13,21 +13,22 @@ import com.codeit.findex.repository.IndexDataRepository;
 import com.codeit.findex.repository.IndexInfoRepository;
 import com.codeit.findex.service.IndexDataService;
 import jakarta.persistence.EntityNotFoundException;
-
-import java.io.IOException;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
-
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.io.Writer;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Objects;
+
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
@@ -48,7 +49,6 @@ public class BasicIndexDataService implements IndexDataService {
                 .orElseThrow(() -> new EntityNotFoundException("해당 ID의 지수 정보를 찾을 수 없습니다: " + request.indexInfoId()));
 
         IndexData indexData = indexDataMapper.toEntity(request, indexInfo, SourceType.USER);
-
         IndexData savedIndexData = indexDataRepository.save(indexData);
 
         return indexDataMapper.toDto(savedIndexData);
@@ -88,67 +88,76 @@ public class BasicIndexDataService implements IndexDataService {
         indexDataRepository.deleteById(id);
     }
 
+    /**
+     * 🎯 완전히 새로운 커서 기반 페이지네이션 구현
+     * QueryDSL Slice 패턴을 활용한 단순하고 안정적인 구현
+     */
     @Override
     public CursorPageResponseIndexDataDto searchIndexData(IndexDataSearchCondition condition) {
+
+        log.debug("Starting search with condition - cursor: {}, sortField: {}, sortDirection: {}, size: {}", 
+                 condition.cursor(), condition.sortField(), condition.sortDirection(), condition.size());
+
+        // 1. QueryDSL Slice 패턴으로 데이터 조회
+        Slice<IndexData> slice = indexDataRepository.findSlice(condition);
         
-        // 커서 처리: cursor가 있으면 idAfter로 변환
-        IndexDataSearchCondition processedCondition = condition;
-        if (condition.cursor() != null && !condition.cursor().isBlank()) {
-            Long resolvedId = condition.getResolvedId();
-            if (resolvedId != null) {
-                // 커서에서 추출한 ID를 idAfter로 사용하는 새로운 조건 생성
-                processedCondition = new IndexDataSearchCondition(
-                    condition.indexInfoId(),
-                    condition.startDate(),
-                    condition.endDate(),
-                    resolvedId, // cursor에서 추출한 ID를 idAfter로 설정
-                    null, // cursor는 null로 설정 (이미 처리했으므로)
-                    condition.sortField(),
-                    condition.sortDirection(),
-                    condition.size()
-                );
-            }
-        }
-
-        // 쿼리로 데이터 조회 (size + 1개 조회됨)
-        List<IndexData> indexDataList = indexDataRepository.search(processedCondition);
-        long totalElements = indexDataRepository.count(processedCondition);
-
-        // 페이지네이션 처리
-        int requestedSize = processedCondition.size();
-        boolean hasNext = indexDataList.size() > requestedSize;
-        
-        // 다음 페이지가 있으면 마지막 요소 제거 (size + 1에서 초과분 제거)
-        if (hasNext) {
-            indexDataList.remove(indexDataList.size() - 1);
-        }
-
-        // DTO 변환
-        List<IndexDataDto> content = indexDataList.stream()
+        // 2. 엔티티 → DTO 변환
+        List<IndexDataDto> content = slice.getContent().stream()
                 .map(indexDataMapper::toDto)
                 .toList();
 
-        // 다음 커서 생성
+        // 3. 다음 커서 생성 (간단한 "value_id" 형태)
         String nextCursor = null;
         Long nextIdAfter = null;
+        
+        if (slice.hasNext() && !content.isEmpty()) {
+            IndexDataDto lastItem = content.get(content.size() - 1);
+            Object sortValue = extractSortValue(lastItem, condition.sortField());
+            
+            // 단순한 "sortValue_id" 형태의 커서
+            nextCursor = String.format("%s_%d", sortValue.toString(), lastItem.id());
+            nextIdAfter = lastItem.id();
+            
+            log.debug("Generated next cursor: {}, nextIdAfter: {}", nextCursor, nextIdAfter);
 
-        if (hasNext && !indexDataList.isEmpty()) {
-            IndexData lastItem = indexDataList.get(indexDataList.size() - 1);
-            String cursorJson = String.format("{\"id\":%d}", lastItem.getId());
-            nextCursor = Base64.getEncoder().encodeToString(cursorJson.getBytes(StandardCharsets.UTF_8));
-            nextIdAfter = lastItem.getId();
-        }
+        // 4. 전체 개수 조회 (필요한 경우에만)
+        long totalElements = indexDataRepository.count(condition);
 
-        return new CursorPageResponseIndexDataDto(
+        CursorPageResponseIndexDataDto response = new CursorPageResponseIndexDataDto(
                 content,
                 nextCursor,
                 nextIdAfter,
                 requestedSize,
                 totalElements,
-                hasNext
+                slice.hasNext()
         );
+
+        log.debug("Search completed - returned {} items, hasNext: {}", content.size(), slice.hasNext());
+        return response;
     }
 
+    /**
+     * DTO에서 정렬 필드 값을 추출
+     */
+    private Object extractSortValue(IndexDataDto dto, String sortField) {
+        return switch (sortField) {
+            case "baseDate" -> dto.baseDate();
+            case "marketPrice" -> dto.marketPrice();
+            case "closingPrice" -> dto.closingPrice();
+            case "highPrice" -> dto.highPrice();
+            case "lowPrice" -> dto.lowPrice();
+            case "versus" -> dto.versus();
+            case "fluctuationRate" -> dto.fluctuationRate();
+            case "tradingQuantity" -> dto.tradingQuantity();
+            case "tradingPrice" -> dto.tradingPrice();
+            case "marketTotalAmount" -> dto.marketTotalAmount();
+            default -> dto.id(); // fallback
+        };
+    }
+
+    /**
+     * 업데이트가 필요한지 확인
+     */
     private boolean isUpdateNeeded(IndexDataUpdateRequest request, IndexData indexData) {
         if (request.marketPrice() != null && indexData.getMarketPrice().compareTo(request.marketPrice()) != 0) return true;
         if (request.closingPrice() != null && indexData.getClosingPrice().compareTo(request.closingPrice()) != 0) return true;
@@ -167,7 +176,8 @@ public class BasicIndexDataService implements IndexDataService {
         List<IndexData> indexDataList = indexDataRepository.findAllByCondition(condition);
         List<IndexDataDto> indexDataDtoList = indexDataMapper.toDtoList(indexDataList);
 
-        String[] headers = {"baseDate", "marketPrice", "closingPrice", "highPrice", "lowPrice", "versus", "fluctuationRate", "tradingQuantity", "tradingPrice", "marketTotalAmount"};
+        String[] headers = {"baseDate", "marketPrice", "closingPrice", "highPrice", "lowPrice", 
+                           "versus", "fluctuationRate", "tradingQuantity", "tradingPrice", "marketTotalAmount"};
 
         try (CSVPrinter csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT.withHeader(headers))) {
             for (IndexDataDto dto : indexDataDtoList) {
