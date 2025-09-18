@@ -90,28 +90,52 @@ public class BasicIndexDataService implements IndexDataService {
 
     @Override
     public CursorPageResponseIndexDataDto searchIndexData(IndexDataSearchCondition condition) {
-
-        if(condition.cursor()!= null) {
-            byte[] decodedCursor = Base64.getDecoder().decode(condition.cursor());
-            String cursorStr = new String(decodedCursor, StandardCharsets.UTF_8);
+        
+        // 커서 처리: cursor가 있으면 idAfter로 변환
+        IndexDataSearchCondition processedCondition = condition;
+        if (condition.cursor() != null && !condition.cursor().isBlank()) {
+            Long resolvedId = condition.getResolvedId();
+            if (resolvedId != null) {
+                // 커서에서 추출한 ID를 idAfter로 사용하는 새로운 조건 생성
+                processedCondition = new IndexDataSearchCondition(
+                    condition.indexInfoId(),
+                    condition.startDate(),
+                    condition.endDate(),
+                    resolvedId, // cursor에서 추출한 ID를 idAfter로 설정
+                    null, // cursor는 null로 설정 (이미 처리했으므로)
+                    condition.sortField(),
+                    condition.sortDirection(),
+                    condition.size()
+                );
+            }
         }
 
-        // 쿼리로 데이터 조회
-        List<IndexData> indexDataList = indexDataRepository.search(condition);
-        long totalElements = indexDataRepository.count(condition);
+        // 쿼리로 데이터 조회 (size + 1개 조회됨)
+        List<IndexData> indexDataList = indexDataRepository.search(processedCondition);
+        long totalElements = indexDataRepository.count(processedCondition);
 
-        boolean hasNext = indexDataList.size() == condition.size();
-        if (hasNext) indexDataList.remove(indexDataList.size() - 1);
+        // 페이지네이션 처리
+        int requestedSize = processedCondition.size();
+        boolean hasNext = indexDataList.size() > requestedSize;
+        
+        // 다음 페이지가 있으면 마지막 요소 제거 (size + 1에서 초과분 제거)
+        if (hasNext) {
+            indexDataList.remove(indexDataList.size() - 1);
+        }
 
-        List<IndexDataDto> content = indexDataList.stream().map(indexDataMapper::toDto).toList();
+        // DTO 변환
+        List<IndexDataDto> content = indexDataList.stream()
+                .map(indexDataMapper::toDto)
+                .toList();
 
+        // 다음 커서 생성
         String nextCursor = null;
         Long nextIdAfter = null;
 
-        if (hasNext) {
+        if (hasNext && !indexDataList.isEmpty()) {
             IndexData lastItem = indexDataList.get(indexDataList.size() - 1);
             String cursorJson = String.format("{\"id\":%d}", lastItem.getId());
-            nextCursor = Base64.getEncoder().encodeToString(cursorJson.getBytes());
+            nextCursor = Base64.getEncoder().encodeToString(cursorJson.getBytes(StandardCharsets.UTF_8));
             nextIdAfter = lastItem.getId();
         }
 
@@ -119,7 +143,7 @@ public class BasicIndexDataService implements IndexDataService {
                 content,
                 nextCursor,
                 nextIdAfter,
-                condition.size(),
+                requestedSize,
                 totalElements,
                 hasNext
         );
