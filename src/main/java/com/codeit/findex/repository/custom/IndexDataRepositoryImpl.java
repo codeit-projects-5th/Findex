@@ -39,28 +39,43 @@ public class IndexDataRepositoryImpl implements IndexDataRepositoryCustom {
         QIndexData indexData = QIndexData.indexData;
         BooleanBuilder where = new BooleanBuilder(); // where 조건 빌드
 
+        // 지수 정보 ID 필터
         if (condition.indexInfoId() != null) {
             where.and(indexData.indexInfo.id.eq(condition.indexInfoId()));
         }
+        
         // 시작 날짜 조건이 있으면 쿼리에 추가
         if (condition.startDate() != null) {
             where.and(indexData.baseDate.goe(condition.startDate()));
         }
+        
         // 종료 날짜 조건이 있으면 쿼리에 추가
         if (condition.endDate() != null) {
             where.and(indexData.baseDate.loe(condition.endDate()));
         }
-        if (condition.idAfter() != null) where.and(indexData.id.gt(condition.idAfter()));
+        
+        // 커서 기반 페이지네이션 - idAfter 보다 큰 ID만 조회
+        if (condition.idAfter() != null) {
+            where.and(indexData.id.gt(condition.idAfter()));
+        }
 
+        // 정렬 필드 화이트리스트 검증
+        String sortField = condition.sortField();
+        if (!ALLOWED_SORT_FIELDS.contains(sortField)) {
+            throw new IllegalArgumentException("허용되지 않은 정렬 필드입니다: " + sortField);
+        }
+
+        // 정렬 방향 설정
         Order order = "desc".equalsIgnoreCase(condition.sortDirection()) ? Order.DESC : Order.ASC;
         OrderSpecifier<?> orderSpecifier;
 
-        switch (condition.sortDirection()) {
-            case "baseDate" -> orderSpecifier = new OrderSpecifier<>(order, indexData.baseDate );
-            case "marketPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.marketPrice );
-            case "closingPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.closingPrice );
-            case "highPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.highPrice );
-            case "lowPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.lowPrice );
+        // 정렬 필드에 따른 OrderSpecifier 생성 (sortField 기준으로 수정)
+        switch (sortField) {
+            case "baseDate" -> orderSpecifier = new OrderSpecifier<>(order, indexData.baseDate);
+            case "marketPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.marketPrice);
+            case "closingPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.closingPrice);
+            case "highPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.highPrice);
+            case "lowPrice" -> orderSpecifier = new OrderSpecifier<>(order, indexData.lowPrice);
             case "versus" -> orderSpecifier = new OrderSpecifier<>(order, indexData.versus);
             case "fluctuationRate" -> orderSpecifier = new OrderSpecifier<>(order, indexData.fluctuationRate);
             case "tradingQuantity" -> orderSpecifier = new OrderSpecifier<>(order, indexData.tradingQuantity);
@@ -69,10 +84,13 @@ public class IndexDataRepositoryImpl implements IndexDataRepositoryCustom {
             default -> orderSpecifier = new OrderSpecifier<>(Order.DESC, indexData.baseDate); // fallback
         }
 
+        // 커서 기반 페이지네이션을 위해 size + 1개 조회
+        int limitSize = condition.size() != null ? condition.size() + 1 : 11; // 기본값 10 + 1
+
         return queryFactory.selectFrom(indexData)
                 .where(where)
-                .orderBy(orderSpecifier)
-                .limit(condition.size() != null ? condition.size() : 0)
+                .orderBy(orderSpecifier, indexData.id.asc()) // 정렬 필드 + ID로 2차 정렬 (일관된 순서 보장)
+                .limit(limitSize)
                 .fetch();
     }
 
