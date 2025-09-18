@@ -119,6 +119,7 @@ public class BasicIndexDataService implements IndexDataService {
             nextIdAfter = lastItem.id();
             
             log.debug("Generated next cursor: {}, nextIdAfter: {}", nextCursor, nextIdAfter);
+        }
 
         // 4. 전체 개수 조회 (필요한 경우에만)
         long totalElements = indexDataRepository.count(condition);
@@ -127,7 +128,7 @@ public class BasicIndexDataService implements IndexDataService {
                 content,
                 nextCursor,
                 nextIdAfter,
-                requestedSize,
+                condition.size(),
                 totalElements,
                 slice.hasNext()
         );
