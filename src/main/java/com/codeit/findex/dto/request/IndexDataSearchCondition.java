@@ -2,14 +2,13 @@ package com.codeit.findex.dto.request;
 
 import org.springframework.format.annotation.DateTimeFormat;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Base64;
 
 public record IndexDataSearchCondition(
     Long indexInfoId,
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
-    Long idAfter,
     String cursor,
     String sortField,
     String sortDirection,
@@ -27,15 +26,50 @@ public record IndexDataSearchCondition(
         }
     }
 
-    public Long getResolvedId() {
-        if (cursor != null && !cursor.isBlank()) {
-            try {
-                String decoded = new String(Base64.getDecoder().decode(cursor));
-                return Long.parseLong(decoded.replaceAll("[^0-9]", ""));
-            } catch (Exception e) {
-                return null;
-            }
+    /**
+     * 커서에서 정렬 값을 추출
+     * 커서 형태: "sortValue_id" (예: "2850.75_20", "2023-12-31_15")
+     */
+    public Object getLastSortValue() {
+        if (cursor == null || cursor.isBlank() || !cursor.contains("_")) {
+            return null;
         }
-        return idAfter;
+        
+        try {
+            String sortValue = cursor.substring(0, cursor.lastIndexOf("_"));
+            
+            return switch (sortField) {
+                case "baseDate" -> LocalDate.parse(sortValue);
+                case "marketPrice", "closingPrice", "highPrice", "lowPrice", 
+                     "versus", "fluctuationRate" -> new BigDecimal(sortValue);
+                case "tradingQuantity", "tradingPrice", "marketTotalAmount" -> Long.parseLong(sortValue);
+                default -> null;
+            };
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 커서에서 마지막 ID를 추출
+     */
+    public Long getLastId() {
+        if (cursor == null || cursor.isBlank() || !cursor.contains("_")) {
+            return null;
+        }
+        
+        try {
+            String idPart = cursor.substring(cursor.lastIndexOf("_") + 1);
+            return Long.parseLong(idPart);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 정렬 방향이 내림차순인지 확인
+     */
+    public boolean isDescending() {
+        return "desc".equalsIgnoreCase(sortDirection);
     }
 }
